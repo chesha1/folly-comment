@@ -23,74 +23,94 @@
 #include <folly/portability/Asm.h>
 #include <folly/synchronization/WaitOptions.h>
 
+// 提供了自旋等待的实现
+// spin_pause_until 和 spin_yield_until，它们分别实现了两种自旋等待机制
+
 namespace folly {
-namespace detail {
+    namespace detail {
 
-enum class spin_result {
-  success, // condition passed
-  timeout, // exceeded deadline
-  advance, // exceeded current wait-options component timeout
-};
+        enum class spin_result {
+            success, // condition passed 自旋等待成功
+            timeout, // exceeded deadline 自旋等待超时，等待的资源或条件在给定时间内未能满足
+            advance, // exceeded current wait-options component timeout 超过了当前等待选项组件的超时时间
+        };
 
-template <typename Clock, typename Duration, typename F>
-spin_result spin_pause_until(
-    std::chrono::time_point<Clock, Duration> const& deadline,
-    WaitOptions const& opt,
-    F f) {
-  if (opt.spin_max() <= opt.spin_max().zero()) {
-    return spin_result::advance;
-  }
+        // 采用自旋等待的通用模板函数。
+        // 它在给定的截止时间（deadline）之前持续地检查某个条件（通过调用函数 f 来进行判断）是否为真
+        template<typename Clock, typename Duration, typename F>
+        spin_result spin_pause_until(
+                // Clock：一个时钟类型，用于确定时间点的基础（即 "epoch"），以及时间点的分辨率。
+                // 典型的时钟类型包括 std::chrono::system_clock，std::chrono::steady_clock 和 std::chrono::high_resolution_clock
+                // Duration：一个持续时间类型，用于定义时间点的分辨率。
+                // 例如，如果 Duration 是 std::chrono::milliseconds，那么这个时间点的分辨率就是毫秒级别
+                std::chrono::time_point<Clock, Duration> const &deadline,
+                WaitOptions const &opt,
+                F f) {
 
-  if (f()) {
-    return spin_result::success;
-  }
+            // 如果配置的自旋最大持续时间没有意义（例如，它被设置为 0 或负数），
+            // 则函数将提前结束自旋等待
+            if (opt.spin_max() <= opt.spin_max().zero()) {
+                return spin_result::advance;
+            }
 
-  constexpr auto min = std::chrono::time_point<Clock, Duration>::min();
-  if (deadline == min) {
-    return spin_result::timeout;
-  }
+            if (f()) {
+                return spin_result::success;
+            }
 
-  auto tbegin = Clock::now();
-  while (true) {
-    if (f()) {
-      return spin_result::success;
-    }
+            constexpr auto min = std::chrono::time_point<Clock, Duration>::min();
+            if (deadline == min) {
+                return spin_result::timeout;
+            }
 
-    auto const tnow = Clock::now();
-    if (tnow >= deadline) {
-      return spin_result::timeout;
-    }
+            // 自旋等待循环
+            // 它使用指定的时钟 Clock 来获取当前时间，并持续检查某个条件 f，直到该条件满足（f() 返回 true），
+            // 或者达到某个截止时间 deadline，或者超过了某个最大等待时间 opt.spin_max()
+            auto tbegin = Clock::now();
+            while (true) {
+                if (f()) {
+                    return spin_result::success;
+                }
 
-    //  Backward time discontinuity in Clock? revise pre_block starting point
-    tbegin = std::min(tbegin, tnow);
-    if (tnow >= tbegin + opt.spin_max()) {
-      return spin_result::advance;
-    }
+                auto const tnow = Clock::now();
+                if (tnow >= deadline) {
+                    return spin_result::timeout;
+                }
 
-    //  The pause instruction is the polite way to spin, but it doesn't
-    //  actually affect correctness to omit it if we don't have it. Pausing
-    //  donates the full capabilities of the current core to its other
-    //  hyperthreads for a dozen cycles or so.
-    asm_volatile_pause();
-  }
-}
+                //  Backward time discontinuity in Clock? revise pre_block starting point
+                tbegin = std::min(tbegin, tnow);
+                if (tnow >= tbegin + opt.spin_max()) {
+                    return spin_result::advance;
+                }
 
-template <typename Clock, typename Duration, typename F>
-spin_result spin_yield_until(
-    std::chrono::time_point<Clock, Duration> const& deadline, F f) {
-  while (true) {
-    if (f()) {
-      return spin_result::success;
-    }
+                //  The pause instruction is the polite way to spin, but it doesn't
+                //  actually affect correctness to omit it if we don't have it. Pausing
+                //  donates the full capabilities of the current core to its other
+                //  hyperthreads for a dozen cycles or so.
+                // 告诉处理器当前线程正在等待，允许处理器将其资源重新分配给其他线程或者核心。
+                // 这是自旋等待中的 "礼貌" 行为，可以避免处理器在空转时过热
+                asm_volatile_pause();
+            }
+        }
 
-    const auto max = std::chrono::time_point<Clock, Duration>::max();
-    if (deadline != max && Clock::now() >= deadline) {
-      return spin_result::timeout;
-    }
+        // 与spin_pause_until不同，这个函数在检查条件时调用了std::this_thread::yield()，
+        // 暗示调度器当前线程愿意放弃其时间片，从而允许其它线程运行
+        template<typename Clock, typename Duration, typename F>
+        spin_result spin_yield_until(
+                std::chrono::time_point<Clock, Duration> const &deadline, F f) {
+            while (true) {
+                if (f()) {
+                    return spin_result::success;
+                }
 
-    std::this_thread::yield();
-  }
-}
+                const auto max = std::chrono::time_point<Clock, Duration>::max();
+                if (deadline != max && Clock::now() >= deadline) {
+                    return spin_result::timeout;
+                }
 
-} // namespace detail
+                // 暂停了当前线程的执行并允许操作系统调度其他线程进行执行
+                std::this_thread::yield();
+            }
+        }
+
+    } // namespace detail
 } // namespace folly
