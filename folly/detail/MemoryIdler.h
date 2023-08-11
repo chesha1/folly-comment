@@ -27,6 +27,7 @@
 
 namespace folly {
 namespace detail {
+    // 帮助线程在处于空闲状态时释放某些内存资源
 
 /// MemoryIdler provides helper routines that allow routines to return
 /// some assigned memory resources back to the system.  The intended
@@ -36,6 +37,9 @@ namespace detail {
 /// tcmalloc use these for better performance) and unmap the stack pages
 /// that contain no useful data.
 struct MemoryIdler {
+    // 提供帮助方法，使线程能够在长时间等待时（例如在LIFO线程池中）
+    // 将分配的内存资源（如线程本地的malloc缓存）返回给系统，
+    // 并且可以释放不包含有用数据的栈页面
   /// Returns memory from thread-local allocation pools to the global
   /// pool, if we know how to for the current malloc implementation.
   /// jemalloc is supported.

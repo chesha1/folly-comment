@@ -20,6 +20,10 @@
 
 #include <folly/Optional.h>
 
+// 包含了与异步操作跟踪相关的一些功能
+// 各种 log* 函数：这些函数提供了记录与执行器和异步操作相关的事件的功能。
+// 从其名称来看，它们可能会在某些事件发生时记录日志
+
 namespace folly {
 class Executor;
 class IOExecutor;

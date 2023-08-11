@@ -26,7 +26,7 @@
 #include <folly/Utility.h>
 #include <folly/lang/Exception.h>
 
-// 定义了一个执行器的抽象，用于调度和管理任务。
+// 定义了一个 Executor 的抽象，用于调度和管理任务。
 // 它还提供了与任务生命周期和执行器阻塞行为相关的一些工具和机制
 namespace folly {
 

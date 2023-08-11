@@ -22,6 +22,9 @@
 #include <folly/Portability.h>
 #include <folly/Traits.h>
 
+// 提供了一套用于原子操作的实用工具，补充并改进了标准库中的原子操作，
+// 提供了一些新功能并修复了一些已知问题
+
 namespace folly {
 
 namespace detail {
