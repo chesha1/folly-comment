@@ -26,6 +26,8 @@
 #include <folly/executors/thread_factory/ThreadFactory.h>
 
 namespace folly {
+    // 包含线程启动/停止/统计的逻辑的基类
+    // 这个类和任务实际如何工作无关
 
 /***
  *  ThreadedExecutor
