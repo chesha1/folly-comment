@@ -36,7 +36,7 @@
 #include <folly/io/async/test/AsyncSocketTest.h>
 #include <folly/io/async/test/MockAsyncSocketLegacyObserver.h>
 #include <folly/io/async/test/MockAsyncSocketObserver.h>
-#include <folly/io/async/test/TFOTest.h>
+#include <folly/io/async/test/TFOUtil.h>
 #include <folly/io/async/test/Util.h>
 #include <folly/net/test/MockNetOpsDispatcher.h>
 #include <folly/net/test/MockTcpInfoDispatcher.h>
@@ -202,6 +202,160 @@ class DelayedWrite : public AsyncTimeout {
 };
 
 ///////////////////////////////////////////////////////////////////////////
+// constructor related tests
+///////////////////////////////////////////////////////////////////////////
+
+/**
+ * Test constructing with an existing fd.
+ */
+TEST(AsyncSocketTest, ConstructWithFd) {
+  // construct a pair of unix sockets
+  NetworkSocket fds[2];
+  {
+    auto ret = netops::socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+    EXPECT_EQ(0, ret);
+  }
+
+  // "client" socket
+  auto cfd = fds[0];
+  ASSERT_NE(cfd, NetworkSocket());
+
+  // instantiate AsyncSocket w/o any connectionEstablishTimestamp
+  EventBase evb;
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb, cfd));
+
+  // should be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+
+  // should be no establish time, since not passed on construction
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
+}
+
+/**
+ * Test constructing with an existing fd, passing a connection establish ts.
+ */
+TEST(AsyncSocketTest, ConstructWithFdAndTimestamp) {
+  // construct a pair of unix sockets
+  NetworkSocket fds[2];
+  {
+    auto ret = netops::socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+    EXPECT_EQ(0, ret);
+  }
+
+  // "client" socket
+  auto cfd = fds[0];
+  ASSERT_NE(cfd, NetworkSocket());
+
+  // instantiate AsyncSocket w/ a connectionEstablishTimestamp
+  const auto connectionEstablishTime = std::chrono::steady_clock::now();
+  EventBase evb;
+  auto socket = AsyncSocket::UniquePtr(
+      new AsyncSocket(&evb, cfd, 0, nullptr, connectionEstablishTime));
+
+  // should be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+
+  // should have connection establish time, as passed on construction
+  ASSERT_TRUE(socket->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(
+      connectionEstablishTime, socket->getConnectionEstablishTime().value());
+}
+
+/**
+ * Test constructing with an existing fd, then moving.
+ */
+TEST(AsyncSocketTest, ConstructWithFdThenMove) {
+  // construct a pair of unix sockets
+  NetworkSocket fds[2];
+  {
+    auto ret = netops::socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+    EXPECT_EQ(0, ret);
+  }
+
+  // "client" socket
+  auto cfd = fds[0];
+  ASSERT_NE(cfd, NetworkSocket());
+
+  // instantiate AsyncSocket
+  EventBase evb;
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb, cfd));
+
+  // should be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+
+  // should be no establish time, since not passed on construction
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
+
+  // move the socket
+  auto socket2 = AsyncSocket::UniquePtr(new AsyncSocket(std::move(socket)));
+
+  // should still be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket2->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket2->getConnectEndTime());
+
+  // should still be no establish time, since not passed on orig construction
+  EXPECT_FALSE(socket2->getConnectionEstablishTime().has_value());
+}
+
+/**
+ * Test constructing with an existing fd, then moving.
+ */
+TEST(AsyncSocketTest, ConstructWithFdAndTimestampThenMove) {
+  // construct a pair of unix sockets
+  NetworkSocket fds[2];
+  {
+    auto ret = netops::socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+    EXPECT_EQ(0, ret);
+  }
+
+  // "client" socket
+  auto cfd = fds[0];
+  ASSERT_NE(cfd, NetworkSocket());
+
+  // instantiate AsyncSocket w/ a connectionEstablishTimestamp
+  const auto connectionEstablishTime = std::chrono::steady_clock::now();
+  EventBase evb;
+  auto socket = AsyncSocket::UniquePtr(
+      new AsyncSocket(&evb, cfd, 0, nullptr, connectionEstablishTime));
+
+  // should be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+
+  // should have connection establish time, as passed on construction
+  ASSERT_TRUE(socket->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(
+      connectionEstablishTime, socket->getConnectionEstablishTime().value());
+
+  // move the socket
+  auto socket2 = AsyncSocket::UniquePtr(new AsyncSocket(std::move(socket)));
+
+  // should still be no connect timestamps
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket2->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket2->getConnectEndTime());
+
+  // should have connection  establish time, as passed on orig construction
+  ASSERT_TRUE(socket2->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(
+      connectionEstablishTime, socket2->getConnectionEstablishTime().value());
+}
+
+///////////////////////////////////////////////////////////////////////////
 // connect() tests
 ///////////////////////////////////////////////////////////////////////////
 
@@ -214,7 +368,12 @@ TEST(AsyncSocketTest, Connect) {
 
   // Connect using a AsyncSocket
   EventBase evb;
-  std::shared_ptr<AsyncSocket> socket = AsyncSocket::newSocket(&evb);
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb));
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
   ConnCallback cb;
   const auto startedAt = std::chrono::steady_clock::now();
   socket->connect(&cb, server.getAddress(), 30);
@@ -224,53 +383,99 @@ TEST(AsyncSocketTest, Connect) {
 
   ASSERT_EQ(cb.state, STATE_SUCCEEDED);
   EXPECT_LE(0, socket->getConnectTime().count());
+  EXPECT_EQ(std::chrono::milliseconds(30), socket->getConnectTimeout());
+
   EXPECT_GE(socket->getConnectStartTime(), startedAt);
   EXPECT_LE(socket->getConnectStartTime(), socket->getConnectEndTime());
   EXPECT_LE(socket->getConnectEndTime(), finishedAt);
-  EXPECT_EQ(socket->getConnectTimeout(), std::chrono::milliseconds(30));
+
+  // since connect() successful, the establish time == connect() end time
+  ASSERT_TRUE(socket->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(
+      socket->getConnectEndTime(),
+      socket->getConnectionEstablishTime().value());
 }
-
-enum class TFOState {
-  DISABLED,
-  ENABLED,
-};
-
-class AsyncSocketConnectTest : public ::testing::TestWithParam<TFOState> {};
-
-std::vector<TFOState> getTestingValues() {
-  std::vector<TFOState> vals;
-  vals.emplace_back(TFOState::DISABLED);
-
-#if FOLLY_ALLOW_TFO
-  vals.emplace_back(TFOState::ENABLED);
-#endif
-  return vals;
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    ConnectTests,
-    AsyncSocketConnectTest,
-    ::testing::ValuesIn(getTestingValues()));
 
 /**
- * Test connecting to a server that isn't listening
+ * Test connecting to a server, then move the socket.¸
+ */
+TEST(AsyncSocketTest, ConnectThenMove) {
+  // Start listening on a local port
+  TestServer server;
+
+  // Connect using a AsyncSocket
+  EventBase evb;
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb));
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
+  ConnCallback cb;
+  const auto startedAt = std::chrono::steady_clock::now();
+  socket->connect(&cb, server.getAddress(), 30);
+
+  evb.loop();
+  const auto finishedAt = std::chrono::steady_clock::now();
+
+  ASSERT_EQ(cb.state, STATE_SUCCEEDED);
+  EXPECT_LE(0, socket->getConnectTime().count());
+  EXPECT_EQ(std::chrono::milliseconds(30), socket->getConnectTimeout());
+
+  EXPECT_GE(socket->getConnectStartTime(), startedAt);
+  EXPECT_LE(socket->getConnectStartTime(), socket->getConnectEndTime());
+  EXPECT_LE(socket->getConnectEndTime(), finishedAt);
+
+  // since connect() successful, the establish time == connect() end time
+  ASSERT_TRUE(socket->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(
+      socket->getConnectEndTime(),
+      socket->getConnectionEstablishTime().value());
+
+  // store timings, then move the socket
+  const auto connectStartTime = socket->getConnectStartTime();
+  const auto connectEndTime = socket->getConnectEndTime();
+  auto socket2 = AsyncSocket::UniquePtr(new AsyncSocket(std::move(socket)));
+
+  // timings should have been moved with the socket
+  EXPECT_EQ(connectStartTime, socket2->getConnectStartTime());
+  EXPECT_EQ(connectEndTime, socket2->getConnectEndTime());
+  ASSERT_TRUE(socket2->getConnectionEstablishTime().has_value());
+  EXPECT_EQ(connectEndTime, socket2->getConnectionEstablishTime().value());
+}
+
+/**
+ * Test connecting to a server that isn't listening.
  */
 TEST(AsyncSocketTest, ConnectRefused) {
   EventBase evb;
-
-  std::shared_ptr<AsyncSocket> socket = AsyncSocket::newSocket(&evb);
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb));
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectStartTime());
+  EXPECT_EQ(
+      std::chrono::steady_clock::time_point(), socket->getConnectEndTime());
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
 
   // Hopefully nothing is actually listening on this address
   folly::SocketAddress addr("127.0.0.1", 65535);
   ConnCallback cb;
+  const auto startedAt = std::chrono::steady_clock::now();
   socket->connect(&cb, addr, 30);
 
   evb.loop();
+  const auto finishedAt = std::chrono::steady_clock::now();
 
   EXPECT_EQ(STATE_FAILED, cb.state);
   EXPECT_EQ(AsyncSocketException::NOT_OPEN, cb.exception.getType());
   EXPECT_LE(0, socket->getConnectTime().count());
   EXPECT_EQ(std::chrono::milliseconds(30), socket->getConnectTimeout());
+
+  EXPECT_GE(socket->getConnectStartTime(), startedAt);
+  EXPECT_LE(socket->getConnectStartTime(), socket->getConnectEndTime());
+  EXPECT_LE(socket->getConnectEndTime(), finishedAt);
+
+  // since connect() failed, the establish time is empty.
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
 }
 
 /**
@@ -294,9 +499,11 @@ TEST(AsyncSocketTest, ConnectTimeout) {
       : nullptr;
   SocketAddress addr(host, 65535);
   ConnCallback cb;
+  const auto startedAt = std::chrono::steady_clock::now();
   socket->connect(&cb, addr, 1); // also set a ridiculously small timeout
 
   evb.loop();
+  const auto finishedAt = std::chrono::steady_clock::now();
 
   ASSERT_EQ(cb.state, STATE_FAILED);
   if (cb.exception.getType() == AsyncSocketException::NOT_OPEN) {
@@ -307,6 +514,16 @@ TEST(AsyncSocketTest, ConnectTimeout) {
   }
   ASSERT_EQ(cb.exception.getType(), AsyncSocketException::TIMED_OUT);
 
+  EXPECT_LE(0, socket->getConnectTime().count());
+  EXPECT_EQ(std::chrono::milliseconds(1), socket->getConnectTimeout());
+
+  EXPECT_GE(socket->getConnectStartTime(), startedAt);
+  EXPECT_LE(socket->getConnectStartTime(), socket->getConnectEndTime());
+  EXPECT_LE(socket->getConnectEndTime(), finishedAt);
+
+  // since connect() failed, the establish time is empty.
+  EXPECT_FALSE(socket->getConnectionEstablishTime().has_value());
+
   // Verify that we can still get the peer address after a timeout.
   // Use case is if the client was created from a client pool, and we want
   // to log which peer failed.
@@ -316,6 +533,28 @@ TEST(AsyncSocketTest, ConnectTimeout) {
   EXPECT_LE(0, socket->getConnectTime().count());
   EXPECT_EQ(socket->getConnectTimeout(), std::chrono::milliseconds(1));
 }
+
+enum class TFOState {
+  DISABLED,
+  ENABLED,
+};
+
+class AsyncSocketConnectTest : public ::testing::TestWithParam<TFOState> {};
+
+std::vector<TFOState> getTestingValues() {
+  std::vector<TFOState> vals;
+  vals.emplace_back(TFOState::DISABLED);
+
+#if FOLLY_ALLOW_TFO
+  vals.emplace_back(TFOState::ENABLED);
+#endif
+  return vals;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ConnectTests,
+    AsyncSocketConnectTest,
+    ::testing::ValuesIn(getTestingValues()));
 
 /**
  * Test writing immediately after connecting, without waiting for connect
@@ -1281,6 +1520,175 @@ TEST(AsyncSocketTest, WriteTimeout) {
   // For now, we simply check that the timeout occurred within 160ms of
   // the requested value.
   T_CHECK_TIMEOUT(start, end, milliseconds(timeout), milliseconds(160));
+}
+
+/**
+ * Test getting local and peer addresses with no fd.
+ *
+ * Value returned should be empty; no failure should occur.
+ */
+TEST(AsyncSocketTest, GetAddressesNoFd) {
+  EventBase evb;
+  auto socket = AsyncSocket::newSocket(&evb);
+
+  {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    EXPECT_TRUE(address.empty());
+  }
+
+  {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    EXPECT_TRUE(address.empty());
+  }
+}
+
+/**
+ * Test getting local and peer addresses after connecting.
+ */
+TEST(AsyncSocketTest, GetAddressesAfterConnect_GetWhileOpenAndOnClose) {
+  EventBase evb;
+  auto socket = AsyncSocket::newSocket(&evb);
+
+  // Start listening on a local port
+  TestServer server;
+
+  // Connect
+  {
+    ConnCallback cb;
+    socket->connect(&cb, server.getAddress(), 30);
+    evb.loop();
+    ASSERT_EQ(cb.state, STATE_SUCCEEDED);
+  }
+
+  // Get local, make sure it's not empty and not equal to server
+  const folly::SocketAddress localAddress = [&socket]() {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    return address;
+  }();
+  EXPECT_FALSE(localAddress.empty());
+  EXPECT_NE(server.getAddress(), localAddress);
+
+  const folly::SocketAddress peerAddress = [&socket]() {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    return address;
+  }();
+  EXPECT_FALSE(peerAddress.empty());
+  EXPECT_EQ(server.getAddress(), peerAddress);
+
+  // Close
+  socket->closeNow();
+
+  // Addresses should still be available as they're cached
+  const folly::SocketAddress localAddress2 = [&socket]() {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    return address;
+  }();
+  EXPECT_EQ(localAddress2, localAddress);
+
+  const folly::SocketAddress peerAddress2 = [&socket]() {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    return address;
+  }();
+  EXPECT_EQ(peerAddress2, peerAddress);
+}
+
+/**
+ * Test getting local and peer addresses after closing.
+ *
+ * Only peer address is available under these conditions.
+ */
+TEST(AsyncSocketTest, GetAddressesAfterConnect_GetOnlyAfterClose) {
+  EventBase evb;
+  auto socket = AsyncSocket::newSocket(&evb);
+
+  // Start listening on a local port
+  TestServer server;
+
+  // Connect
+  {
+    ConnCallback cb;
+    socket->connect(&cb, server.getAddress(), 30);
+    evb.loop();
+    ASSERT_EQ(cb.state, STATE_SUCCEEDED);
+  }
+
+  // Close
+  socket->closeNow();
+
+  // Local address unavailable since never fetched
+  {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    EXPECT_TRUE(address.empty());
+  }
+
+  // Peer address available since it was passed to connect()
+  {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    EXPECT_FALSE(address.empty());
+    EXPECT_EQ(server.getAddress(), address);
+  }
+}
+
+/**
+ * Test getting local and peer addresses after connecting.
+ */
+TEST(AsyncSocketTest, GetAddressesAfterInitFromFd_GetOnInitAndOnClose) {
+  EventBase evb;
+
+  // Start listening on a local port
+  TestServer server;
+
+  // Create a socket, connect, then create another AsyncSocket from just fd
+  auto socket = [&server, &evb]() {
+    auto socket1 = AsyncSocket::newSocket(&evb);
+    ConnCallback cb;
+    socket1->connect(&cb, server.getAddress(), 30);
+    evb.loop();
+    return AsyncSocket::newSocket(&evb, socket1->detachNetworkSocket());
+  }();
+
+  // Get local, make sure it's not empty and not equal to server
+  const folly::SocketAddress localAddress = [&socket]() {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    return address;
+  }();
+  EXPECT_FALSE(localAddress.empty());
+  EXPECT_NE(server.getAddress(), localAddress);
+
+  const folly::SocketAddress peerAddress = [&socket]() {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    return address;
+  }();
+  EXPECT_FALSE(peerAddress.empty());
+  EXPECT_EQ(server.getAddress(), peerAddress);
+
+  // Close
+  socket->closeNow();
+
+  // Addresses should still be available as they're cached
+  const folly::SocketAddress localAddress2 = [&socket]() {
+    folly::SocketAddress address;
+    socket->getLocalAddress(&address);
+    return address;
+  }();
+  EXPECT_EQ(localAddress2, localAddress);
+
+  const folly::SocketAddress peerAddress2 = [&socket]() {
+    folly::SocketAddress address;
+    socket->getPeerAddress(&address);
+    return address;
+  }();
+  EXPECT_EQ(peerAddress2, peerAddress);
 }
 
 /**

@@ -21,7 +21,64 @@
 #include <limits>
 #include <type_traits>
 
+#include <folly/Portability.h>
+
 namespace folly {
+
+/// numbers
+///
+/// mimic: std::numbers, C++20 (partial)
+namespace numbers {
+
+namespace detail {
+template <typename T>
+using enable_if_floating_t =
+    std::enable_if_t<std::is_floating_point<T>::value, T>;
+}
+
+/// e_v
+///
+/// mimic: std::numbers::e_v, C++20
+template <typename T>
+FOLLY_INLINE_VARIABLE constexpr T e_v = detail::enable_if_floating_t<T>(
+    2.71828182845904523536028747135266249775724709369995L);
+
+/// ln2_v
+///
+/// mimic: std::numbers::ln2_v, C++20
+template <typename T>
+FOLLY_INLINE_VARIABLE constexpr T ln2_v = detail::enable_if_floating_t<T>(
+    0.69314718055994530941723212145817656807550013436025L);
+
+/// e
+///
+/// mimic: std::numbers::e, C++20
+FOLLY_INLINE_VARIABLE constexpr double e = e_v<double>;
+
+/// ln2
+///
+/// mimic: std::numbers::ln2, C++20
+FOLLY_INLINE_VARIABLE constexpr double ln2 = ln2_v<double>;
+
+} // namespace numbers
+
+/// floating_point_integral_constant
+///
+/// Like std::integral_constant but for floating-point types holding integral
+/// values representable in an integral type.
+template <typename T, typename S, S Value>
+struct floating_point_integral_constant {
+  using value_type = T;
+  static constexpr value_type value = static_cast<value_type>(Value);
+  constexpr operator value_type() const noexcept { return value; }
+  constexpr value_type operator()() const noexcept { return value; }
+};
+#if FOLLY_CPLUSPLUS < 201703L
+template <typename T, typename S, S Value>
+constexpr typename floating_point_integral_constant<T, S, Value>::value_type
+    floating_point_integral_constant<T, S, Value>::value;
+#endif
+
 // TLDR: Prefer using operator< for ordering. And when
 // a and b are equivalent objects, we return b to make
 // sorting stable.

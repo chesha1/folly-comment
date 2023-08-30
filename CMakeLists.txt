@@ -222,6 +222,8 @@ list(APPEND hfiles
   ${FOLLY_DIR}/io/async/test/AsyncSocketTest.h
   ${FOLLY_DIR}/io/async/test/AsyncSocketTest2.h
   ${FOLLY_DIR}/io/async/test/BlockingSocket.h
+  ${FOLLY_DIR}/io/async/test/CallbackStateEnum.h
+  ${FOLLY_DIR}/io/async/test/ConnCallback.h
   ${FOLLY_DIR}/io/async/test/MockAsyncSocket.h
   ${FOLLY_DIR}/io/async/test/MockAsyncServerSocket.h
   ${FOLLY_DIR}/io/async/test/MockAsyncSSLSocket.h
@@ -230,6 +232,7 @@ list(APPEND hfiles
   ${FOLLY_DIR}/io/async/test/MockTimeoutManager.h
   ${FOLLY_DIR}/io/async/test/ScopedBoundPort.h
   ${FOLLY_DIR}/io/async/test/SocketPair.h
+  ${FOLLY_DIR}/io/async/test/TFOUtil.h
   ${FOLLY_DIR}/io/async/test/TestSSLServer.h
   ${FOLLY_DIR}/io/async/test/TimeUtil.h
   ${FOLLY_DIR}/io/async/test/UndelayedDestruction.h
@@ -563,6 +566,8 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
     ${FOLLY_DIR}/futures/test/TestExecutor.cpp
     ${FOLLY_DIR}/futures/test/TestExecutor.h
     ${FOLLY_DIR}/io/async/test/BlockingSocket.h
+    ${FOLLY_DIR}/io/async/test/CallbackStateEnum.h
+    ${FOLLY_DIR}/io/async/test/ConnCallback.h
     ${FOLLY_DIR}/io/async/test/MockAsyncServerSocket.h
     ${FOLLY_DIR}/io/async/test/MockAsyncSocket.h
     ${FOLLY_DIR}/io/async/test/MockAsyncSSLSocket.h
@@ -575,6 +580,8 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
     ${FOLLY_DIR}/io/async/test/SocketPair.h
     ${FOLLY_DIR}/io/async/test/SSLUtil.cpp
     ${FOLLY_DIR}/io/async/test/SSLUtil.h
+    ${FOLLY_DIR}/io/async/test/TFOUtil.cpp
+    ${FOLLY_DIR}/io/async/test/TFOUtil.h
     ${FOLLY_DIR}/io/async/test/TestSSLServer.cpp
     ${FOLLY_DIR}/io/async/test/TestSSLServer.h
     ${FOLLY_DIR}/io/async/test/TimeUtil.cpp
@@ -762,7 +769,9 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
     DIRECTORY functional/test/
       TEST apply_tuple_test WINDOWS_DISABLED
         SOURCES ApplyTupleTest.cpp
+      TEST functional_invoke_test SOURCES InvokeTest.cpp
       TEST partial_test SOURCES PartialTest.cpp
+      TEST functional_traits_test SOURCES traits_test.cpp
 
     DIRECTORY futures/test/
       TEST barrier_test SOURCES BarrierTest.cpp
@@ -988,6 +997,7 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
       BENCHMARK concurrent_skip_list_benchmark
         SOURCES ConcurrentSkipListBenchmark.cpp
       TEST concurrent_skip_list_test SOURCES ConcurrentSkipListTest.cpp
+      TEST constexpr_math_test SOURCES ConstexprMathTest.cpp
       TEST conv_test WINDOWS_DISABLED SOURCES ConvTest.cpp
       TEST cpu_id_test SOURCES CpuIdTest.cpp
       TEST demangle_test SOURCES DemangleTest.cpp

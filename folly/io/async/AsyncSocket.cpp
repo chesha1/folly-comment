@@ -709,7 +709,9 @@ AsyncSocket::AsyncSocket(
     EventBase* evb,
     NetworkSocket fd,
     uint32_t zeroCopyBufId,
-    const SocketAddress* peerAddress)
+    const SocketAddress* peerAddress,
+    folly::Optional<std::chrono::steady_clock::time_point>
+        maybeConnectionEstablishTime)
     : zeroCopyBufId_(zeroCopyBufId),
       state_(StateEnum::ESTABLISHED),
       fd_(fd),
@@ -718,6 +720,7 @@ AsyncSocket::AsyncSocket(
       writeTimeout_(this, evb),
       ioHandler_(this, evb, fd),
       immediateReadHandler_(this),
+      maybeConnectionEstablishTime_(std::move(maybeConnectionEstablishTime)),
       observerContainer_(this) {
   VLOG(5) << "new AsyncSocket(" << this << ", evb=" << evb << ", fd=" << fd
           << ", zeroCopyBufId=" << zeroCopyBufId << ")";
@@ -738,6 +741,10 @@ AsyncSocket::AsyncSocket(AsyncSocket* oldAsyncSocket)
       appBytesWritten_(oldAsyncSocket->appBytesWritten_),
       rawBytesWritten_(oldAsyncSocket->rawBytesWritten_),
       preReceivedData_(std::move(oldAsyncSocket->preReceivedData_)),
+      connectStartTime_(oldAsyncSocket->connectStartTime_),
+      connectEndTime_(oldAsyncSocket->connectEndTime_),
+      maybeConnectionEstablishTime_(
+          oldAsyncSocket->maybeConnectionEstablishTime_),
       tfoInfo_(std::move(oldAsyncSocket->tfoInfo_)),
       byteEventHelper_(std::move(oldAsyncSocket->byteEventHelper_)),
       observerContainer_(this, std::move(oldAsyncSocket->observerContainer_)) {
@@ -2310,13 +2317,13 @@ void AsyncSocket::cacheAddresses() {
 }
 
 void AsyncSocket::cacheLocalAddress() const {
-  if (!localAddr_.isInitialized()) {
+  if (!localAddr_.isInitialized() && fd_ != NetworkSocket()) {
     localAddr_.setFromLocalAddress(fd_);
   }
 }
 
 void AsyncSocket::cachePeerAddress() const {
-  if (!addr_.isInitialized()) {
+  if (!addr_.isInitialized() && fd_ != NetworkSocket()) {
     addr_.setFromPeerAddress(fd_);
   }
 }
@@ -2869,7 +2876,7 @@ bool AsyncSocket::processZeroCopyWriteInProgress() noexcept {
 }
 
 folly::Expected<folly::TcpInfo, std::errc> AsyncSocket::getTcpInfo(
-    TcpInfo::LookupOptions options) {
+    const TcpInfo::LookupOptions& options) {
   if (NetworkSocket() == fd_) {
     return folly::makeUnexpected(std::errc::invalid_argument);
   }
@@ -4249,6 +4256,7 @@ void AsyncSocket::invokeConnectSuccess() {
   VLOG(5) << "AsyncSocket(this=" << this << ", fd=" << fd_
           << "): connect success invoked";
   connectEndTime_ = std::chrono::steady_clock::now();
+  maybeConnectionEstablishTime_ = connectEndTime_;
   bool enableByteEventsForObserver = false;
 
   // legacy observer support
